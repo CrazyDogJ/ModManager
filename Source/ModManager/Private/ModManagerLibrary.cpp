@@ -1,0 +1,375 @@
+﻿// Fill out your copyright notice in the Description page of Project Settings.
+
+
+#include "ModManagerLibrary.h"
+
+#include "IPlatformFilePak.h"
+#include "JsonObjectConverter.h"
+#include "ModManager.h"
+#include "ModManagerSettings.h"
+#include "ModManagerUtils.h"
+#include "ShaderCodeLibrary.h"
+#include "AssetRegistry/AssetRegistryState.h"
+#if ENGINE_MAJOR_VERSION == 4
+#include "Serialization/LargeMemoryReader.h"
+#endif
+
+FString UModManagerLibrary::GetModsSearchPath()
+{
+	if (const auto ModManagerSettings = GetMutableDefault<UModManagerSettings>())
+	{
+		return ModManagerSettings->GetModsSearchPath();
+	}
+
+	return FPaths::ProjectModsDir();
+}
+
+bool UModManagerLibrary::LoadModInfoFromJson(FString JsonFilePath, FModInfo& OutModInfo)
+{
+	FString JsonString;
+	if (!FFileHelper::LoadFileToString(JsonString, *JsonFilePath))
+	{
+		UE_LOG(LogModManager, Warning, TEXT("Failed to load mod info JSON: %s"), *JsonFilePath);
+		return false;
+	}
+ 
+	TSharedPtr<FJsonObject> JsonObject;
+	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
+ 
+	if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
+	{
+		UE_LOG(LogModManager, Warning, TEXT("Failed to parse mod info JSON: %s"), *JsonFilePath);
+		return false;
+	}
+	
+	if (!FJsonObjectConverter::JsonObjectToUStruct(JsonObject.ToSharedRef(), &OutModInfo, 0, 0))
+	{
+		UE_LOG(LogModManager, Warning, TEXT("Failed to convert JSON to FModInfo: %s"), *JsonFilePath);
+		return false;
+	}
+ 
+	return true;
+}
+
+TArray<FModInfo> UModManagerLibrary::SearchMods(FString SearchPath)
+{
+	TArray<FModInfo> Result;
+	
+	TArray<FString> Files;
+	IFileManager::Get().FindFilesRecursive(Files, *SearchPath, TEXT("modinfo.json"),true, false, false);
+
+	for (const auto FileName : Files)
+	{
+		FModInfo ModInfo;
+		if (LoadModInfoFromJson(FileName, ModInfo))
+		{
+			ModInfo.ModInfoPath = FileName;
+			const auto Paks = GetAllPaksInPath(*FPaths::GetPath(FileName), true);
+			ModInfo.ModPakFiles = Paks;
+			
+			Result.Add(ModInfo);
+		}
+	}
+
+	return Result;
+}
+
+TArray<FString> UModManagerLibrary::GetAllPaksInPath(FString SearchPath, bool bRecurse)
+{
+	TArray<FString> Files;
+	FPakFileSearchVisitor PakVisitor(Files);
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+	UE_LOG(LogModManager, Verbose, TEXT("Searching directory for pak files %s"), *SearchPath);
+	PlatformFile.IterateDirectoryRecursively(*SearchPath, PakVisitor);
+
+	if (Files.Num() == 0)
+	{
+		UE_LOG(LogModManager, Error, TEXT("Does not contain any pak files within %s."), *SearchPath);
+		return Files;
+	}
+	else
+	{
+		UE_LOG(LogModManager, Verbose, TEXT("Contains %i pak files within %s."), Files.Num(), *SearchPath);
+	}
+	
+	return Files;
+}
+
+void UModManagerLibrary::SetModEnableState(FString ModInfoJsonPath, TArray<FString> ModRelatedPaks, bool bEnable)
+{
+	FString JsonString;
+	if (!FFileHelper::LoadFileToString(JsonString, *ModInfoJsonPath))
+	{
+		UE_LOG(LogModManager, Warning, TEXT("Failed to load JSON file: %s"), *ModInfoJsonPath);
+		return;
+	}
+	
+	FModInfo ModInfo;
+	if (!FJsonObjectConverter::JsonObjectStringToUStruct(JsonString, &ModInfo, 0, 0))
+	{
+		UE_LOG(LogModManager, Warning, TEXT("Failed to parse JSON to struct: %s"), *ModInfoJsonPath);
+		return;
+	}
+	
+	ModInfo.Enabled = bEnable;
+	ModInfo.ModInfoPath = ModInfoJsonPath;
+	ModInfo.ModPakFiles = ModRelatedPaks;
+	if (bEnable)
+	{
+		MountModPaks(ModInfo);
+	}
+	else
+	{
+		UnmountModPaks(ModInfo);
+	}
+	
+	FString OutputJsonString;
+	if (!FJsonObjectConverter::UStructToJsonObjectString(ModInfo, OutputJsonString))
+	{
+		UE_LOG(LogModManager, Warning, TEXT("Failed to serialize struct to JSON string"));
+		return;
+	}
+	
+	if (!FFileHelper::SaveStringToFile(OutputJsonString, *ModInfoJsonPath))
+	{
+		UE_LOG(LogModManager, Warning, TEXT("Failed to save JSON file: %s"), *ModInfoJsonPath);
+		return;
+	}
+ 
+	UE_LOG(LogModManager, Log, TEXT("Successfully modified Enabled flag in: %s"), *ModInfoJsonPath);
+}
+
+void UModManagerLibrary::MountModPaks(FModInfo ModInfo)
+{
+	FPakPlatformFile* PakPlatformFile = (FPakPlatformFile*)FPlatformFileManager::Get().FindPlatformFile(TEXT("PakFile"));
+	if (!PakPlatformFile)
+	{
+		UE_LOG(LogModManager, Error, TEXT("PakPlatformFile not found!"));
+		return;
+	}
+	
+	for (const FString& PakFilePath : ModInfo.ModPakFiles)
+	{
+		const int32 PakOrder = 999; // High order to override base pak.
+		const bool bLoadIndex = true;
+
+		const FString CustomMountPoint = ModInfo.CustomMountPoint;
+		if (PakPlatformFile->Mount(*PakFilePath, PakOrder, nullptr, bLoadIndex))
+		{
+			// Set up mount point for plugin assets.
+			if (!CustomMountPoint.IsEmpty() && CustomMountPoint != "/Game/" && CustomMountPoint != "/Engine/")
+			{
+				FString ProjectDir = FString::Printf(TEXT("../../../%s/"), FApp::GetProjectName());
+				FString PhysicalMountPath = ProjectDir + TEXT("Mods") + CustomMountPoint;
+				FString PhysicalMountPathContent = PhysicalMountPath + TEXT("Content/");
+				// If we can load asset registry, that means this pak is a plugin type mod pak. Else that is a replacement mod pak
+				if (LoadAssetRegistry(PhysicalMountPath + TEXT("AssetRegistry.bin")))
+				{
+					UE_LOG(LogModManager, Log, TEXT("Asset registry %s is loaded. "), *(PhysicalMountPath + TEXT("AssetRegistry.bin")));
+					// Load shader library.
+					
+					if (LoadShaderLibrary(GetModName(CustomMountPoint), PhysicalMountPathContent))
+					{
+						UE_LOG(LogModManager, Log, TEXT("Shader library load success for mod pak : %s"), *PakFilePath);
+					}
+					else
+					{
+						UE_LOG(LogModManager, Warning, TEXT("Shader library load failed for mod pak : %s"), *PakFilePath);
+					}
+				}
+				
+				FPackageName::RegisterMountPoint(CustomMountPoint, PhysicalMountPathContent);
+				UE_LOG(LogModManager, Log, TEXT("Registered mount point: %s -> %s"), *CustomMountPoint, *PhysicalMountPathContent);
+			}
+		}
+		else
+		{
+			UE_LOG(LogModManager, Warning, TEXT("Failed to mount mod pak: %s"), *PakFilePath);
+		}
+	}
+}
+
+void UModManagerLibrary::UnmountModPaks(FModInfo ModInfo)
+{
+	FPakPlatformFile* PakPlatformFile = (FPakPlatformFile*)FPlatformFileManager::Get().FindPlatformFile(TEXT("PakFile"));
+	if (!PakPlatformFile)
+	{
+		UE_LOG(LogModManager, Error, TEXT("PakPlatformFile not found!"));
+		return;
+	}
+
+	UnloadShaderLibrary(GetModName(ModInfo.CustomMountPoint));
+	
+	for (const FString& PakFilePath : ModInfo.ModPakFiles)
+	{
+		if (PakPlatformFile->Unmount(*PakFilePath))
+		{
+			UE_LOG(LogModManager, Log, TEXT("Unmounted mod pak: %s"), *PakFilePath);
+		}
+		else
+		{
+			UE_LOG(LogModManager, Warning, TEXT("Failed to unmount mod pak: %s"), *PakFilePath);
+		}
+	}
+
+	// Paths
+	const FString CustomMountPoint = ModInfo.CustomMountPoint;
+	const FString ProjectDir = FString::Printf(TEXT("../../../%s/"), FApp::GetProjectName());
+	const FString PhysicalMountPath = ProjectDir + TEXT("Mods") + CustomMountPoint;
+	const FString PhysicalMountPathContent = PhysicalMountPath + TEXT("Content/");
+	
+	// Remove the automatically-added, incorrect content mount point that the Plugin manager added.
+	FPackageName::UnRegisterMountPoint(CustomMountPoint, PhysicalMountPathContent);
+	UE_LOG(LogModManager, Log, TEXT("Unregistered mount point: %s -> %s"), *CustomMountPoint, *PhysicalMountPathContent);
+}
+
+void UModManagerLibrary::InitModManager()
+{
+	const auto ModsPath = GetModsSearchPath();
+	const TArray<FModInfo> ModInfos = SearchMods(ModsPath);
+	
+	for (const auto Itr : ModInfos)
+	{
+		if (Itr.Enabled)
+		{
+			MountModPaks(Itr);
+		}
+	}
+}
+
+FString UModManagerLibrary::GetPakFileName(FString ModPakFilePath)
+{
+	return FPaths::GetCleanFilename(ModPakFilePath);
+}
+
+bool UModManagerLibrary::LoadAssetRegistry(const FString AssetRegistryFilePath)
+{
+	FAssetRegistryState PluginAssetRegistry;
+#if ENGINE_MAJOR_VERSION == 5
+	if (FAssetRegistryState::LoadFromDisk(*AssetRegistryFilePath, FAssetRegistryLoadOptions(), PluginAssetRegistry))
+#else
+	if (LoadFromDisk(*AssetRegistryFilePath, FAssetRegistryLoadOptions(), PluginAssetRegistry))
+#endif
+	{
+		TSharedPtr<class FAssetRegistryState> LoadedAssetRegistryState = MakeShared<class FAssetRegistryState>(MoveTemp(PluginAssetRegistry));
+
+		// For debugging purposes, log out all the package names and assets within this UGC package.
+		if (UE_LOG_ACTIVE(LogModManager, VeryVerbose))
+		{
+			TArray<FName> PackageNames;
+			LoadedAssetRegistryState->GetPackageNames(PackageNames);
+			if (PackageNames.Num() <= 0)
+			{
+				UE_LOG(LogModManager, Error, TEXT("AssetRegistry has no packages"));
+				return false;
+			}
+
+			for (const auto& PN : PackageNames)
+			{
+				UE_LOG(LogModManager, VeryVerbose, TEXT("AssetRegistry contains package %s"), *PN.ToString());
+			}
+
+			TArray<FAssetData> AssetList;
+			LoadedAssetRegistryState->GetAllAssets({}, AssetList);
+
+			if (AssetList.Num() <= 0)
+			{
+				UE_LOG(LogModManager, Error, TEXT("AssetRegistry has no assets"));
+				return false;
+			}
+
+			for (const FAssetData& Asset : AssetList)
+			{
+				UE_LOG(LogModManager, VeryVerbose, TEXT("AssetRegistry contains asset %s"),
+					   *Asset.GetFullName());
+			}
+
+			PackageNames.Empty();
+			AssetList.Empty();
+		}
+
+		UE_LOG(LogModManager, Verbose, TEXT("AssetRegistry loaded from %s. Contains %i assets."),
+			   *AssetRegistryFilePath, LoadedAssetRegistryState.Get()->GetNumAssets());
+		IAssetRegistry::GetChecked().AppendState(*LoadedAssetRegistryState.Get());
+	}
+	else
+	{
+		UE_LOG(LogModManager, Error, TEXT("Failed to load plugin asset registry state %s"), *AssetRegistryFilePath);
+		return false;
+	}
+
+	return true;
+}
+
+FString UModManagerLibrary::GetModName(const FString CustomMountPoint)
+{
+	FString Input = CustomMountPoint;
+	if (Input.StartsWith(TEXT("/"))) Input = Input.Mid(1);
+	if (Input.EndsWith(TEXT("/"))) Input = Input.Left(Input.Len() - 1);
+
+	return Input;
+}
+
+bool UModManagerLibrary::LoadShaderLibrary(const FString ModName, const FString ModContentDir)
+{
+	if (ModName.IsEmpty())
+	{
+		UE_LOG(LogModManager, Error, TEXT("Unable to load shader library on a null plugin."));
+		return false;
+	}
+
+	bool bArchive = false;
+	GConfig->GetBool(TEXT("/Script/UnrealEd.ProjectPackagingSettings"), TEXT("bShareMaterialShaderCode"), bArchive,
+					 GGameIni);
+	if (FApp::CanEverRender() && bArchive)
+	{
+		// load any shader libraries that may exist in this plugin
+		FShaderCodeLibrary::OpenLibrary(ModName, ModContentDir);
+	}
+
+	return true;
+}
+
+bool UModManagerLibrary::UnloadShaderLibrary(const FString ModName)
+{
+	if (ModName.IsEmpty())
+	{
+		UE_LOG(LogModManager, Error, TEXT("Unable to unload shader library on a null plugin."));
+		return false;
+	}
+	
+	bool bArchive = false;
+	GConfig->GetBool(TEXT("/Script/UnrealEd.ProjectPackagingSettings"), TEXT("bShareMaterialShaderCode"), bArchive,
+					 GGameIni);
+	if (FApp::CanEverRender() && bArchive)
+	{
+		FShaderCodeLibrary::CloseLibrary(ModName);
+	}
+
+	return true;
+}
+
+#if ENGINE_MAJOR_VERSION == 4
+bool UModManagerLibrary::LoadFromDisk(const TCHAR* InPath, const FAssetRegistryLoadOptions& InOptions,
+	FAssetRegistryState& OutState, FAssetRegistryVersion::Type* OutVersion)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR("FAssetRegistryState::LoadFromDisk");
+	check(InPath);
+
+	TUniquePtr<FArchive> FileReader(IFileManager::Get().CreateFileReader(InPath));
+	if (FileReader)
+	{
+		// It's faster to load the whole file into memory on a Gen5 console
+		TArray64<uint8> Data;
+		Data.SetNumUninitialized(FileReader->TotalSize());
+		FileReader->Serialize(Data.GetData(), Data.Num());
+		check(!FileReader->IsError());
+
+		FLargeMemoryReader MemoryReader(Data.GetData(), Data.Num());
+		
+		return OutState.Load(MemoryReader, InOptions);
+	}
+
+	return false;
+}
+#endif
