@@ -8,11 +8,18 @@
 #include "Interfaces/IPluginManager.h"
 #include "IDesktopPlatform.h"
 #include "IUATHelperModule.h"
+#include "JsonObjectConverter.h"
 #include "ModManagerEditor.h"
 #include "ModManagerEditorCommands.h"
 #include "ProjectDescriptor.h"
+#include "SModPackagerDialog.h"
 #include "Interfaces/IMainFrameModule.h"
 #include "Interfaces/IProjectManager.h"
+#if ENGINE_MAJOR_VERSION == 4
+#include "ModManagerLibrary.h"
+#include "Misc/FileHelper.h"
+#endif
+#include "ModPackagerSettingsProxy.h"
 #include "Misc/LocalTimestampDirectoryVisitor.h"
 
 #define LOCTEXT_NAMESPACE "ModManagerPackager"
@@ -52,9 +59,18 @@ void FModManagerPackager::OpenPluginPackager(TSharedRef<IPlugin> Plugin)
 			ParentWindowWindowHandle = MainFrameParentWindow->GetNativeWindow()->GetOSWindowHandle();
 		}
 
-		if (DesktopPlatform->OpenDirectoryDialog(ParentWindowWindowHandle, LOCTEXT("SelectOutputFolderTitle", "Select mod output directory:").ToString(), DefaultDirectory, OutputDirectory))
+		FModInfo NewInfo;
+		NewInfo.ModName = Plugin->GetName();
+		NewInfo.Author = Plugin->GetDescriptor().CreatedBy;
+		NewInfo.Version = FString::Printf(TEXT("%d"), Plugin->GetDescriptor().Version);
+		NewInfo.CustomMountPoint = "/" + Plugin->GetName() + "/";
+		ETargetPlatform TargetPlatform;
+		if (ShowModSettingsWindow(NewInfo, TargetPlatform))
 		{
-			PackagePlugin(Plugin, OutputDirectory);
+			if (DesktopPlatform->OpenDirectoryDialog(ParentWindowWindowHandle, LOCTEXT("SelectOutputFolderTitle", "Select mod output directory:").ToString(), DefaultDirectory, OutputDirectory))
+			{
+				PackagePlugin(Plugin, OutputDirectory, NewInfo, TargetPlatform);
+			}
 		}
 	}
 	else
@@ -63,6 +79,39 @@ void FModManagerPackager::OpenPluginPackager(TSharedRef<IPlugin> Plugin)
 
 		FMessageDialog::Open(EAppMsgType::Ok, PackageModError);
 	}
+}
+
+bool FModManagerPackager::ShowModSettingsWindow(FModInfo& OutSettings, ETargetPlatform& OutTargetPlatform)
+{
+	UModPackagerSettingsProxy* Proxy = NewObject<UModPackagerSettingsProxy>();
+	Proxy->Settings = OutSettings;
+	Proxy->AddToRoot(); // 防止垃圾回收
+ 
+	TSharedRef<SWindow> ModalWindow = SNew(SWindow)
+		.Title(FText::FromString("Mod Settings"))
+		.ClientSize(FVector2D(500, 400))
+		.SupportsMaximize(false)
+		.SupportsMinimize(false);
+ 
+	TSharedRef<SModPackagerDialog> DialogWidget = SNew(SModPackagerDialog)
+		.SettingsProxy(Proxy)
+		.ParentWindow(ModalWindow);
+ 
+	ModalWindow->SetContent(DialogWidget);
+ 
+	// 关键：以模态形式添加窗口
+	GEditor->EditorAddModalWindow(ModalWindow);
+ 
+	bool bSuccess = false;
+	if (DialogWidget->bUserConfirmed)
+	{
+		OutSettings = Proxy->Settings;
+		OutTargetPlatform = Proxy->TargetPlatform;
+		bSuccess = true;
+	}
+ 
+	Proxy->RemoveFromRoot();
+	return bSuccess;
 }
 
 bool FModManagerPackager::IsAllContentSaved(TSharedRef<IPlugin> Plugin)
@@ -94,7 +143,7 @@ bool FModManagerPackager::IsAllContentSaved(TSharedRef<IPlugin> Plugin)
 	return bAllContentSaved;
 }
 
-void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const FString& OutputDirectory)
+void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const FString& OutputDirectory, const FModInfo& InModInfo, const ETargetPlatform& TargetPlatform)
 {
 #if PLATFORM_WINDOWS
 	FText PlatformName = LOCTEXT("PlatformName_Windows", "Win64");
@@ -146,6 +195,21 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 	// clean a possibly left over staging area
 	PlatformFile.DeleteDirectoryRecursively(*StagePath);
 
+	const auto PluginName = Plugin->GetName();
+	
+	FString TargetPlatformString;
+	switch (TargetPlatform)
+	{
+	case ETargetPlatform::Win64: TargetPlatformString = TEXT("Win64");
+		break;
+	case ETargetPlatform::Win32: TargetPlatformString = TEXT("Win32");
+		break;
+	case ETargetPlatform::Mac: TargetPlatformString = TEXT("Mac");
+		break;
+	case ETargetPlatform::Linux: TargetPlatformString = TEXT("Linux");
+		break;
+	}
+	
 	// UAT command for packaging our mod
 	FString CommandLine = FString::Printf(TEXT(
 		"BuildCookRun"
@@ -153,17 +217,19 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 		" -dlcname=\"%s\""
 		" -basedonreleaseversion=\"%s\""
 		" -archivedirectory=\"%s\""
-		" -targetplatform=Win64"
+		" -targetplatform=\"%s\""
 		" -DLCIncludeEngineContent -nodebuginfo"
 		" -noP4"
 		// UAT should be compiled already
 		" -nocompile -nocompileeditor"
-		" -build -cook -stage -package -pak -archive -cookall -compressed -distribution"
+		// Avoid cook all
+		" -build -cook -stage -package -pak -archive -compressed -distribution"
 		" -clientconfig=Development -serverconfig=Development"),
 	                                      *FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath()),
-	                                      *Plugin->GetName(),
+	                                      *PluginName,
 	                                      *ReleaseVersion,
-	                                      *StagePath
+	                                      *StagePath,
+	                                      *TargetPlatformString
 	);
 
 	FText PackagingText = FText::Format(LOCTEXT("ModManagerEditor_PackagePluginTaskName", "Packaging {0}"), FText::FromString(Plugin->GetName()));
@@ -177,12 +243,35 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 	    nullptr,
 #else
 #endif
-	    [OutputDirectory, StagePath, StagePathPackedMod, this]
+	    [OutputDirectory, StagePath, StagePathPackedMod, this, PluginName, InModInfo]
 		(FString TaskResult, double TimeSec)
 	    {
-	        // move the actual mod files into the requested output dir and cleanup the staging area
+	        // find all paks and move to needed folder.
 	        IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-	        PlatformFile.CopyDirectoryTree(*OutputDirectory, *StagePathPackedMod, true);
+	        const TArray<FString> FinalFiles = UModManagerLibrary::GetAllPaksInPath(StagePathPackedMod, true);
+	    	
+	    	const FString Path = OutputDirectory + "/" + PluginName;
+	    	PlatformFile.CreateDirectory(*Path);
+	    	
+	        for (const auto ModPackageFile : FinalFiles)
+	        {
+	        	const auto FileName = FPaths::GetCleanFilename(ModPackageFile);
+	        	PlatformFile.CopyFile(*(Path + "/" + FileName), *ModPackageFile, EPlatformFileRead::None, 
+#if ENGINE_MAJOR_VERSION == 5
+	        		EPlatformFileWrite::AttemptDeleteAndCreate
+#else
+	        		EPlatformFileWrite::AllowRead
+#endif
+	        		);
+	        }
+	    	
+	    	// Save to json file.
+	    	FString OutputJsonString;
+	    	FJsonObjectConverter::UStructToJsonObjectString<FModInfo>(InModInfo, OutputJsonString);
+	    	const FString ModJsonFile = Path + "/" + "modinfo.json";
+	    	FFileHelper::SaveStringToFile(OutputJsonString, *ModJsonFile);
+	    	
+	    	// Delete temp folders.
 	        PlatformFile.DeleteDirectoryRecursively(*StagePath);
 	    	// Enable other mod plugins after we finish uat task.
 	    	EnableLastModPlugins();

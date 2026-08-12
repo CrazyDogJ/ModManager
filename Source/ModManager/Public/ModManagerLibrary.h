@@ -14,31 +14,31 @@ struct MODMANAGER_API FModInfo
 {
 	GENERATED_BODY()
  
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere)
 	FString ModName;
  
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere)
 	FString Version;
  
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere)
 	FString Author;
  
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere)
 	FString Description;
  
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere)
 	TArray<FString> CompatibleGameVersions;
  
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere)
 	TArray<FString> Dependencies;
  
-	UPROPERTY(BlueprintReadOnly)
-	int32 LoadOrder;
+	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	int32 LoadOrder = 0;
  
-	UPROPERTY(BlueprintReadOnly)
-	bool Enabled;
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
+	bool Enabled = true;
 
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
 	FString CustomMountPoint;
 
 public:
@@ -80,11 +80,11 @@ public:
 	/**
 	 * Get all pak files in given dir.
 	 * @param SearchPath in search path, usually the GetModsSearchPath()
-	 * @param bRecurse should search recursely
+	 * @param bIoStorage is using io storage.
 	 * @return pak files dir
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Mod Manager")
-	static TArray<FString> GetAllPaksInPath(FString SearchPath, bool bRecurse = true);
+	static TArray<FString> GetAllPaksInPath(FString SearchPath, bool bIoStorage = true);
 
 	UFUNCTION(BlueprintCallable, Category = "Mod Manager")
 	static void SetModEnableState(FString ModInfoJsonPath, TArray<FString> ModRelatedPaks, bool bEnable);
@@ -113,6 +113,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Mod Manager")
 	static bool UnloadShaderLibrary(const FString ModName);
+	
+	UFUNCTION(BlueprintPure, Category = "Mod Manager")
+	static TArray<FString> GetAssetsInMountPoint(FString MountPoint);
 	
 #if ENGINE_MAJOR_VERSION == 4
 protected:

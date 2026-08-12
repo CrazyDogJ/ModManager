@@ -29,15 +29,31 @@ class FPakFileSearchVisitor final : public IPlatformFile::FDirectoryVisitor
 	TArray<FString>& FoundFiles;
 
 public:
-	explicit FPakFileSearchVisitor(TArray<FString>& InFoundFiles) : FoundFiles(InFoundFiles) {}
+	bool bIoStorage = false;
+	explicit FPakFileSearchVisitor(TArray<FString>& InFoundFiles, bool IoStorage = false) : FoundFiles(InFoundFiles), bIoStorage(IoStorage) {}
 	virtual bool Visit(const TCHAR* FilenameOrDirectory, bool bIsDirectory) override
 	{
 		if (bIsDirectory == false)
 		{
 			const FString Filename(FilenameOrDirectory);
-			if (Filename.MatchesWildcard(TEXT("*.pak")) && !FoundFiles.Contains(Filename))
+			if (!FoundFiles.Contains(Filename))
 			{
-				FoundFiles.Add(Filename);
+				if (bIoStorage)
+				{
+					if (Filename.MatchesWildcard(TEXT("*.pak"))||
+						Filename.MatchesWildcard(TEXT("*.utoc"))||
+						Filename.MatchesWildcard(TEXT("*.ucas")))
+					{
+						FoundFiles.Add(Filename);
+					}
+				}
+				else
+				{
+					if (Filename.MatchesWildcard(TEXT("*.pak")))
+					{
+						FoundFiles.Add(Filename);
+					}
+				}
 			}
 		}
 		return true;

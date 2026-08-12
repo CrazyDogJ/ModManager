@@ -12,7 +12,8 @@ public class ModManagerEditor : ModuleRules
                 "Core", 
                 "PluginBrowser",
                 "UnrealEd",
-                "Projects"
+                "Projects", 
+                "ModManager"
             }
         );
 
@@ -26,7 +27,8 @@ public class ModManagerEditor : ModuleRules
                 "UATHelper", 
                 // TODO : Main frame is need in 4.27
                 "MainFrame",
-                "DesktopPlatform"
+                "DesktopPlatform",
+                "JsonUtilities"
             }
         );
     }

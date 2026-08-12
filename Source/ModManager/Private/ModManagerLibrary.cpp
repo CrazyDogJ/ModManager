@@ -9,6 +9,7 @@
 #include "ModManagerSettings.h"
 #include "ModManagerUtils.h"
 #include "ShaderCodeLibrary.h"
+#include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/AssetRegistryState.h"
 #if ENGINE_MAJOR_VERSION == 4
 #include "Serialization/LargeMemoryReader.h"
@@ -74,10 +75,10 @@ TArray<FModInfo> UModManagerLibrary::SearchMods(FString SearchPath)
 	return Result;
 }
 
-TArray<FString> UModManagerLibrary::GetAllPaksInPath(FString SearchPath, bool bRecurse)
+TArray<FString> UModManagerLibrary::GetAllPaksInPath(FString SearchPath, bool bIoStorage)
 {
 	TArray<FString> Files;
-	FPakFileSearchVisitor PakVisitor(Files);
+	FPakFileSearchVisitor PakVisitor(Files, bIoStorage);
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
 	UE_LOG(LogModManager, Verbose, TEXT("Searching directory for pak files %s"), *SearchPath);
 	PlatformFile.IterateDirectoryRecursively(*SearchPath, PakVisitor);
@@ -347,6 +348,22 @@ bool UModManagerLibrary::UnloadShaderLibrary(const FString ModName)
 	}
 
 	return true;
+}
+
+TArray<FString> UModManagerLibrary::GetAssetsInMountPoint(const FString MountPoint)
+{
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+ 
+	TArray<FAssetData> AssetList;
+	AssetRegistry.GetAssetsByPath(FName(MountPoint), AssetList, true);
+ 
+	TArray<FString> Assets;
+	for (const FAssetData& Asset : AssetList)
+	{
+		Assets.Add(Asset.PackageName.ToString());
+	}
+	return Assets;
 }
 
 #if ENGINE_MAJOR_VERSION == 4

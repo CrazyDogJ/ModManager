@@ -3,6 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "ModManagerLibrary.h"
+#include "ModPackagerSettingsProxy.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(ModManagerPackager, Log, All);
 
@@ -20,7 +22,10 @@ public:
 
 	void OpenPluginPackager(TSharedRef<class IPlugin> Plugin);
 
-	void PackagePlugin(TSharedRef<class IPlugin> Plugin, const FString& OutputDirectory);
+	bool ShowModSettingsWindow(FModInfo& OutSettings, ETargetPlatform& OutTargetPlatform);
+	
+	void PackagePlugin(TSharedRef<class IPlugin> Plugin, const FString& OutputDirectory, const FModInfo& InModInfo, const ETargetPlatform&
+	                   TargetPlatform);
 
 	/** Generates submenu content for the plugin packager command */
 	void GeneratePackagerMenuContent(class FMenuBuilder& MenuBuilder);

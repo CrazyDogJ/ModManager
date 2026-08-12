@@ -18,9 +18,6 @@ struct FPakFileContents
 	TArray<FString> PakContents;
 };
 
-/**
- * 
- */
 UCLASS()
 class MODMANAGER_API UModManagerSubsystem : public UGameInstanceSubsystem
 {
