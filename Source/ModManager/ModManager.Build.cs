@@ -43,7 +43,10 @@ public class ModManager : ModuleRules
 				"JsonUtilities",
 				"Json",
 				"AssetRegistry",
-				"RenderCore"
+				"RenderCore",
+				"Projects", 
+				// Only for plugin game feature engine version.
+				"GameFeatures"
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);

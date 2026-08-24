@@ -59,11 +59,8 @@ void FModManagerPackager::OpenPluginPackager(TSharedRef<IPlugin> Plugin)
 			ParentWindowWindowHandle = MainFrameParentWindow->GetNativeWindow()->GetOSWindowHandle();
 		}
 
-		FModInfo NewInfo;
-		NewInfo.ModName = Plugin->GetName();
-		NewInfo.Author = Plugin->GetDescriptor().CreatedBy;
-		NewInfo.Version = FString::Printf(TEXT("%d"), Plugin->GetDescriptor().Version);
-		NewInfo.CustomMountPoint = "/" + Plugin->GetName() + "/";
+		auto NewInfo = MakeModInfoFromPlugin(Plugin);
+		
 		ETargetPlatform TargetPlatform;
 		if (ShowModSettingsWindow(NewInfo, TargetPlatform))
 		{
@@ -190,13 +187,13 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 
 	// set up some path names where things are going
 	FString StagePath = FString::Printf(TEXT("%s/Temp"), *OutputDirectory);
-	FString StagePathPackedMod = FString::Printf(TEXT("%s/Temp/Windows/%s/Mods"), *OutputDirectory, *GameModuleName);
 
 	// clean a possibly left over staging area
 	PlatformFile.DeleteDirectoryRecursively(*StagePath);
 
 	const auto PluginName = Plugin->GetName();
 	
+	// Target platform string.
 	FString TargetPlatformString;
 	switch (TargetPlatform)
 	{
@@ -218,7 +215,7 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 		" -basedonreleaseversion=\"%s\""
 		" -archivedirectory=\"%s\""
 		" -targetplatform=\"%s\""
-		" -DLCIncludeEngineContent -nodebuginfo"
+		" -DLCIncludeEngineContent -DLCPakPluginFile -nodebuginfo"
 		" -noP4"
 		// UAT should be compiled already
 		" -nocompile -nocompileeditor"
@@ -243,12 +240,12 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 	    nullptr,
 #else
 #endif
-	    [OutputDirectory, StagePath, StagePathPackedMod, this, PluginName, InModInfo]
+	    [OutputDirectory, StagePath, this, PluginName, InModInfo]
 		(FString TaskResult, double TimeSec)
 	    {
 	        // find all paks and move to needed folder.
 	        IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-	        const TArray<FString> FinalFiles = UModManagerLibrary::GetAllPaksInPath(StagePathPackedMod, true);
+	        const TArray<FString> FinalFiles = UModManagerLibrary::GetAllPaksInPath(StagePath, true);
 	    	
 	    	const FString Path = OutputDirectory + "/" + PluginName;
 	    	PlatformFile.CreateDirectory(*Path);
@@ -287,7 +284,9 @@ void FModManagerPackager::FindAvailableGameMods(TArray<TSharedRef<IPlugin>>& Out
 	for (TSharedRef<IPlugin> Plugin : IPluginManager::Get().GetDiscoveredPlugins())
 	{
 		// All game project plugins that are marked as mods are valid
-		if (Plugin->GetLoadedFrom() == EPluginLoadedFrom::Project && Plugin->GetType() == EPluginType::Mod)
+		if (Plugin->GetLoadedFrom() == EPluginLoadedFrom::Project && 
+			(Plugin->GetType() == EPluginType::Mod || 
+			Plugin->GetDescriptorFileName().Contains(TEXT("/GameFeatures/"))))
 		{
 			UE_LOG(LogModManagerEditor, Display, TEXT("Adding %s"), *Plugin->GetName());
 			OutAvailableGameMods.AddUnique(Plugin);
@@ -455,6 +454,27 @@ void FModManagerPackager::EnableLastModPlugins()
 	}
 
 	DisabledModPlugins.Empty();
+}
+
+FModInfo FModManagerPackager::MakeModInfoFromPlugin(TSharedRef<IPlugin> Plugin)
+{
+	FModInfo ModInfo;
+	
+	ModInfo.ModName = Plugin->GetName();
+	ModInfo.Author = Plugin->GetDescriptor().CreatedBy;
+	ModInfo.Description = Plugin->GetDescriptor().Description;
+	ModInfo.Version = FString::Printf(TEXT("%d"), Plugin->GetDescriptor().Version);
+	ModInfo.ModPluginName = Plugin->GetName();
+	if (Plugin->GetType() == EPluginType::Mod)
+	{
+		ModInfo.CustomRelativePath = TEXT("Mods/") + ModInfo.ModPluginName + TEXT("/");
+	}
+	else if (Plugin->GetDescriptorFileName().Contains(TEXT("/GameFeatures/")))
+	{
+		ModInfo.CustomRelativePath = TEXT("Plugins/GameFeatures/") + ModInfo.ModPluginName + TEXT("/");
+	}
+	
+	return ModInfo;
 }
 
 #undef LOCTEXT_NAMESPACE

@@ -3,6 +3,7 @@
 
 #include "ModManagerLibrary.h"
 
+#include "GameFeaturesSubsystem.h"
 #include "IPlatformFilePak.h"
 #include "JsonObjectConverter.h"
 #include "ModManager.h"
@@ -11,6 +12,7 @@
 #include "ShaderCodeLibrary.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/AssetRegistryState.h"
+#include "Interfaces/IPluginManager.h"
 #if ENGINE_MAJOR_VERSION == 4
 #include "Serialization/LargeMemoryReader.h"
 #endif
@@ -140,6 +142,43 @@ void UModManagerLibrary::SetModEnableState(FString ModInfoJsonPath, TArray<FStri
 	UE_LOG(LogModManager, Log, TEXT("Successfully modified Enabled flag in: %s"), *ModInfoJsonPath);
 }
 
+bool UModManagerLibrary::TryAddAndMountPlugin(const FString& PluginName, const FString& PluginDescriptorPath)
+{
+	if (IPluginManager::Get().AddToPluginsList(PluginDescriptorPath))
+	{
+		UE_LOG(LogModManager, Log, TEXT("Mod plugin : %s is added successfully"), *PluginName)
+#if ENGINE_MAJOR_VERSION == 5
+		return IPluginManager::Get().MountExplicitlyLoadedPlugin(PluginName);
+#else
+		// UE4.27 has no bool return.
+		IPluginManager::Get().MountExplicitlyLoadedPlugin(PluginName);
+		return true;
+#endif
+	}
+	
+	return false;
+}
+
+void UModManagerLibrary::TryActivateGameFeaturePlugin(const FString& PluginDescriptorPath)
+{
+	// Game feature try to load and activate this mod plugin.
+	UGameFeaturesSubsystem& GFS = UGameFeaturesSubsystem::Get();
+#if ENGINE_MAJOR_VERSION == 5
+	FString PluginURL = UGameFeaturesSubsystem::GetPluginURL_FileProtocol(PluginDescriptorPath);
+	GFS.RegisterGameFeaturePlugin(PluginURL, FGameFeaturePluginLoadComplete::CreateLambda([PluginURL](const UE::GameFeatures::FResult& GFCResult)
+	{
+		// If register successful, we try to load and active game feature plugin.
+		if (!GFCResult.HasError())
+		{
+			UGameFeaturesSubsystem& GFS = UGameFeaturesSubsystem::Get();
+			GFS.LoadAndActivateGameFeaturePlugin(PluginURL, FGameFeaturePluginLoadComplete());
+		}
+	}));
+#else
+	GFS.LoadAndActivateGameFeaturePlugin(TEXT("file:") + PluginDescriptorPath, FGameFeaturePluginLoadComplete());
+#endif
+}
+
 void UModManagerLibrary::MountModPaks(FModInfo ModInfo)
 {
 	FPakPlatformFile* PakPlatformFile = (FPakPlatformFile*)FPlatformFileManager::Get().FindPlatformFile(TEXT("PakFile"));
@@ -154,21 +193,25 @@ void UModManagerLibrary::MountModPaks(FModInfo ModInfo)
 		const int32 PakOrder = 999; // High order to override base pak.
 		const bool bLoadIndex = true;
 
-		const FString CustomMountPoint = ModInfo.CustomMountPoint;
+		const FString CustomMountPoint = TEXT("/") + ModInfo.ModPluginName + TEXT("/");
+		const FString CustomRelativePath = ModInfo.CustomRelativePath;
 		if (PakPlatformFile->Mount(*PakFilePath, PakOrder, nullptr, bLoadIndex))
 		{
 			// Set up mount point for plugin assets.
 			if (!CustomMountPoint.IsEmpty() && CustomMountPoint != "/Game/" && CustomMountPoint != "/Engine/")
 			{
 				FString ProjectDir = FString::Printf(TEXT("../../../%s/"), FApp::GetProjectName());
-				FString PhysicalMountPath = ProjectDir + TEXT("Mods") + CustomMountPoint;
+				FString PhysicalMountPath = ProjectDir + CustomRelativePath;
 				FString PhysicalMountPathContent = PhysicalMountPath + TEXT("Content/");
+				FString PhysicalMountPathPluginDesc = PhysicalMountPath + ModInfo.ModPluginName + TEXT(".uplugin");
+				
 				// If we can load asset registry, that means this pak is a plugin type mod pak. Else that is a replacement mod pak
+				// Should be loaded first no matter what.
 				if (LoadAssetRegistry(PhysicalMountPath + TEXT("AssetRegistry.bin")))
 				{
 					UE_LOG(LogModManager, Log, TEXT("Asset registry %s is loaded. "), *(PhysicalMountPath + TEXT("AssetRegistry.bin")));
-					// Load shader library.
 					
+					// Load shader library.
 					if (LoadShaderLibrary(GetModName(CustomMountPoint), PhysicalMountPathContent))
 					{
 						UE_LOG(LogModManager, Log, TEXT("Shader library load success for mod pak : %s"), *PakFilePath);
@@ -179,8 +222,21 @@ void UModManagerLibrary::MountModPaks(FModInfo ModInfo)
 					}
 				}
 				
-				FPackageName::RegisterMountPoint(CustomMountPoint, PhysicalMountPathContent);
-				UE_LOG(LogModManager, Log, TEXT("Registered mount point: %s -> %s"), *CustomMountPoint, *PhysicalMountPathContent);
+				// Load plugin
+				if (TryAddAndMountPlugin(ModInfo.ModPluginName, PhysicalMountPathPluginDesc))
+				{
+					// Automatically mount point.
+					UE_LOG(LogModManager, Log, TEXT("Mod plugin : %s is mounted successfully"), *ModInfo.ModPluginName);
+
+					// Try activate game feature;
+					TryActivateGameFeaturePlugin(PhysicalMountPathPluginDesc);
+				}
+				else
+				{
+					// Manually mount point.
+					FPackageName::RegisterMountPoint(CustomMountPoint, PhysicalMountPathContent);
+					UE_LOG(LogModManager, Log, TEXT("Not a mod plugin, registering mount point: %s -> %s"), *CustomMountPoint, *PhysicalMountPathContent);
+				}
 			}
 		}
 		else
@@ -190,16 +246,76 @@ void UModManagerLibrary::MountModPaks(FModInfo ModInfo)
 	}
 }
 
+bool UModManagerLibrary::TryUnmountAndRemovePlugin(const FString& PluginName, const FString& PluginDescriptorPath)
+{
+	if (IPluginManager::Get().UnmountExplicitlyLoadedPlugin(PluginName, nullptr))
+	{
+		// Unmount plugin.
+#if ENGINE_MAJOR_VERSION == 5
+		if (IPluginManager::Get().RemoveFromPluginsList(PluginDescriptorPath, nullptr))
+		{
+			UE_LOG(LogModManager, Error, TEXT("Mod plugin : %s has been removed!"), *PluginName);
+			return true;
+		}
+#else
+		IPluginManager::Get().RefreshPluginsList();
+		UE_LOG(LogModManager, Error, TEXT("Disabling plugin : %s, Refreshing plugin list"), *PluginName);
+#endif
+	}
+	
+	return false;
+}
+
 void UModManagerLibrary::UnmountModPaks(FModInfo ModInfo)
 {
+	auto& GFS = UGameFeaturesSubsystem::Get();
+	FString PluginURL;
+	const auto PluginName = ModInfo.ModPluginName;
+	if (
+#if ENGINE_MAJOR_VERSION == 5
+		GFS.GetPluginURLByName(PluginName, PluginURL)
+#else
+		GFS.GetPluginURLForBuiltInPluginByName(PluginName, PluginURL)
+#endif
+		)
+	{
+		GFS.UninstallGameFeaturePlugin(PluginURL, FGameFeaturePluginUninstallComplete::CreateLambda([ModInfo](const UE::GameFeatures::FResult& GFResult)
+		{
+			UnmountModPaksMain(ModInfo);
+		}));
+	}
+	else
+	{
+		UnmountModPaksMain(ModInfo);
+	}
+}
+
+void UModManagerLibrary::UnmountModPaksMain(FModInfo ModInfo)
+{
+	// Try get pak platform file interface.
 	FPakPlatformFile* PakPlatformFile = (FPakPlatformFile*)FPlatformFileManager::Get().FindPlatformFile(TEXT("PakFile"));
 	if (!PakPlatformFile)
 	{
 		UE_LOG(LogModManager, Error, TEXT("PakPlatformFile not found!"));
 		return;
 	}
+	
+	UnloadShaderLibrary(ModInfo.ModPluginName);
 
-	UnloadShaderLibrary(GetModName(ModInfo.CustomMountPoint));
+	// Paths
+	const FString CustomRelativePath = ModInfo.CustomRelativePath;
+	FString ProjectDir = FString::Printf(TEXT("../../../%s/"), FApp::GetProjectName());
+	FString PhysicalMountPath = ProjectDir + CustomRelativePath;
+	FString PhysicalMountPathPluginDesc = PhysicalMountPath + ModInfo.ModPluginName + TEXT(".uplugin");
+
+	if (!TryUnmountAndRemovePlugin(ModInfo.ModPluginName, PhysicalMountPathPluginDesc))
+	{
+		// Remove the automatically-added, incorrect content mount point that the Plugin manager added.
+		const FString CustomMountPoint = TEXT("/") + ModInfo.ModPluginName + TEXT("/");
+		const FString PhysicalMountPathContent = PhysicalMountPath + TEXT("Content/");
+		FPackageName::UnRegisterMountPoint(CustomMountPoint, PhysicalMountPathContent);
+		UE_LOG(LogModManager, Log, TEXT("Unregistered mount point: %s -> %s"), *CustomMountPoint, *PhysicalMountPathContent);
+	}
 	
 	for (const FString& PakFilePath : ModInfo.ModPakFiles)
 	{
@@ -212,16 +328,6 @@ void UModManagerLibrary::UnmountModPaks(FModInfo ModInfo)
 			UE_LOG(LogModManager, Warning, TEXT("Failed to unmount mod pak: %s"), *PakFilePath);
 		}
 	}
-
-	// Paths
-	const FString CustomMountPoint = ModInfo.CustomMountPoint;
-	const FString ProjectDir = FString::Printf(TEXT("../../../%s/"), FApp::GetProjectName());
-	const FString PhysicalMountPath = ProjectDir + TEXT("Mods") + CustomMountPoint;
-	const FString PhysicalMountPathContent = PhysicalMountPath + TEXT("Content/");
-	
-	// Remove the automatically-added, incorrect content mount point that the Plugin manager added.
-	FPackageName::UnRegisterMountPoint(CustomMountPoint, PhysicalMountPathContent);
-	UE_LOG(LogModManager, Log, TEXT("Unregistered mount point: %s -> %s"), *CustomMountPoint, *PhysicalMountPathContent);
 }
 
 void UModManagerLibrary::InitModManager()

@@ -14,38 +14,43 @@ struct MODMANAGER_API FModInfo
 {
 	GENERATED_BODY()
  
-	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Mod Info")
 	FString ModName;
  
-	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Mod Info")
 	FString Version;
  
-	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Mod Info")
 	FString Author;
  
-	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Mod Info")
 	FString Description;
  
-	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Mod Info")
 	TArray<FString> CompatibleGameVersions;
  
-	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Mod Info")
 	TArray<FString> Dependencies;
  
-	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Mod Info")
 	int32 LoadOrder = 0;
  
-	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "Mod Info")
 	bool Enabled = true;
 
-	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
-	FString CustomMountPoint;
+	// For plugins mod, usually used in plugin identify.
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "Mod Data")
+	FString ModPluginName;
+	
+	// For plugins mod, usually used in finding plugin descriptor path.
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "Mod Data")
+	FString CustomRelativePath;
 
 public:
-	UPROPERTY(BlueprintReadOnly, SkipSerialization)
+	UPROPERTY(BlueprintReadOnly, SkipSerialization, Transient)
 	FString ModInfoPath;
 	
-	UPROPERTY(BlueprintReadOnly, SkipSerialization)
+	UPROPERTY(BlueprintReadOnly, SkipSerialization, Transient)
 	TArray<FString> ModPakFiles;
 };
 
@@ -89,12 +94,20 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Mod Manager")
 	static void SetModEnableState(FString ModInfoJsonPath, TArray<FString> ModRelatedPaks, bool bEnable);
 	
+	static bool TryAddAndMountPlugin(const FString& PluginName, const FString& PluginDescriptorPath);
+	
+	static void TryActivateGameFeaturePlugin(const FString& PluginDescriptorPath);
+	
 	UFUNCTION(BlueprintCallable, Category = "Mod Manager")
 	static void MountModPaks(FModInfo ModInfo);
 
+	static bool TryUnmountAndRemovePlugin(const FString& PluginName, const FString& PluginDescriptorPath);
+	
 	UFUNCTION(BlueprintCallable, Category = "Mod Manager")
 	static void UnmountModPaks(FModInfo ModInfo);
 
+	static void UnmountModPaksMain(FModInfo ModInfo);
+	
 	/** Call when game instance init. */
 	UFUNCTION(BlueprintCallable, Category = "Mod Manager")
 	static void InitModManager();

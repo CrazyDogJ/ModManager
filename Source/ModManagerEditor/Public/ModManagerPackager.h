@@ -74,6 +74,9 @@ private:
 	 */
 	void EnableLastModPlugins();
 	
+	/** Make mod info struct from plugin. */
+	static FModInfo MakeModInfoFromPlugin(TSharedRef<IPlugin> Plugin);
+	
 private:
 	TArray<TSharedPtr<class FUICommandInfo>> ModCommands;
 	TArray<FString> DisabledModPlugins;
