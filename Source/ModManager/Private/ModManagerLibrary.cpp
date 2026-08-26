@@ -14,6 +14,7 @@
 #include "AssetRegistry/AssetRegistryState.h"
 #include "Interfaces/IPluginManager.h"
 #if ENGINE_MAJOR_VERSION == 4
+#include "Engine/AssetManager.h"
 #include "Serialization/LargeMemoryReader.h"
 #endif
 
@@ -152,6 +153,9 @@ bool UModManagerLibrary::TryAddAndMountPlugin(const FString& PluginName, const F
 #else
 		// UE4.27 has no bool return.
 		IPluginManager::Get().MountExplicitlyLoadedPlugin(PluginName);
+		// mount point should do right now because the delegate is delay one logic tick.
+		const auto Plugin = IPluginManager::Get().FindPlugin(PluginName);
+		FPackageName::RegisterMountPoint(Plugin->GetMountedAssetPath(), Plugin->GetContentDir());
 		return true;
 #endif
 	}
@@ -175,7 +179,14 @@ void UModManagerLibrary::TryActivateGameFeaturePlugin(const FString& PluginDescr
 		}
 	}));
 #else
-	GFS.LoadAndActivateGameFeaturePlugin(TEXT("file:") + PluginDescriptorPath, FGameFeaturePluginLoadComplete());
+	const auto PluginName = FPaths::GetBaseFilename(PluginDescriptorPath);
+	const FString PreferredGameFeatureDataPath = FString::Printf(TEXT("/%s/%s.%s"), *PluginName, *PluginName, *PluginName);
+	const auto StreamableHandle = GFS.LoadGameFeatureData(PreferredGameFeatureDataPath);
+	if (StreamableHandle)
+	{
+		StreamableHandle->WaitUntilComplete(0.0f, false);
+		GFS.LoadAndActivateGameFeaturePlugin(TEXT("file:") + PluginDescriptorPath, FGameFeaturePluginLoadComplete());
+	}
 #endif
 }
 

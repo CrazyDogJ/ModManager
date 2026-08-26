@@ -86,7 +86,7 @@ bool FModManagerPackager::ShowModSettingsWindow(FModInfo& OutSettings, ETargetPl
  
 	TSharedRef<SWindow> ModalWindow = SNew(SWindow)
 		.Title(FText::FromString("Mod Settings"))
-		.ClientSize(FVector2D(500, 400))
+		.ClientSize(FVector2D(500, 500))
 		.SupportsMaximize(false)
 		.SupportsMinimize(false);
  
