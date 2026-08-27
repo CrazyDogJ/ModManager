@@ -3,8 +3,10 @@
 
 #include "ModManagerPluginWizardDefinition.h"
 
+#include "AssetToolsModule.h"
 #include "FindDirectoriesVisitor.h"
-#include "Interfaces/IPluginManager.h"
+#include "GameFeatureData.h"
+#include "AssetRegistry/IAssetRegistry.h"
 #include "Features/IPluginsEditorFeature.h"
 #if ENGINE_MAJOR_VERSION != 5
 #include "Misc/FileHelper.h"
@@ -169,6 +171,14 @@ bool FModManagerPluginWizardDefinition::HasModules() const
 
 bool FModManagerPluginWizardDefinition::IsMod() const
 {
+	if (SelectedTemplates.IsValidIndex(0))
+	{
+		if (SelectedTemplates[0].Get()->Name.ToString() == "Game Feature Plugin Content Only")
+		{
+			return false;
+		}
+	}
+	
 	return true;
 }
 
@@ -250,7 +260,15 @@ void FModManagerPluginWizardDefinition::PluginCreated(const FString& PluginName,
 		if (Plugin != nullptr)
 		{
 			FPluginDescriptor Desc = Plugin->GetDescriptor();
-			Desc.Category = "Mods";
+			if (IsMod())
+			{
+				Desc.Category = "Mods";
+			}
+			else
+			{
+				Desc.Category = "Game Features";
+				CreateGameFeatureDataAsset(Plugin);
+			}
 			FText UpdateFailureText;
 			Plugin->UpdateDescriptor(Desc, UpdateFailureText);
 		}
@@ -305,6 +323,34 @@ TSharedPtr<class SWidget> FModManagerPluginWizardDefinition::GetCustomHeaderWidg
 	}
 
 	return CustomHeaderWidget;
+}
+
+void FModManagerPluginWizardDefinition::CreateGameFeatureDataAsset(const TSharedPtr<IPlugin>& Plugin)
+{
+	// If the template includes an existing game feature data, do not create a new one.
+	TArray<FAssetData> ObjectList;
+	FARFilter AssetFilter;
+	AssetFilter.ClassNames.Add(UGameFeatureData::StaticClass()->GetFName());
+	AssetFilter.PackagePaths.Add(FName(Plugin->GetMountedAssetPath()));
+	AssetFilter.bRecursiveClasses = true;
+	AssetFilter.bRecursivePaths = true;
+
+	IAssetRegistry::GetChecked().GetAssets(AssetFilter, ObjectList);
+
+	UObject* GameFeatureDataAsset = nullptr;
+
+	if (ObjectList.Num() <= 0)
+	{
+		// Create the game feature data asset
+		FAssetToolsModule& AssetToolsModule = FModuleManager::Get().LoadModuleChecked<FAssetToolsModule>("AssetTools");
+		FString const& AssetName = Plugin->GetName();
+		GameFeatureDataAsset = AssetToolsModule.Get().CreateAsset(AssetName, Plugin->GetMountedAssetPath(), 
+			UGameFeatureData::StaticClass(), /*Factory=*/ nullptr);
+	}
+	else
+	{
+		GameFeatureDataAsset = ObjectList[0].GetAsset();
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

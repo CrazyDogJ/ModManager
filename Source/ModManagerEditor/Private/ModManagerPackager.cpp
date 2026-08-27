@@ -465,6 +465,12 @@ FModInfo FModManagerPackager::MakeModInfoFromPlugin(TSharedRef<IPlugin> Plugin)
 	ModInfo.Description = Plugin->GetDescriptor().Description;
 	ModInfo.Version = FString::Printf(TEXT("%d"), Plugin->GetDescriptor().Version);
 	ModInfo.ModPluginName = Plugin->GetName();
+	// Add dependencies.
+	for (FPluginReferenceDescriptor Descriptor : Plugin->GetDescriptor().Plugins)
+	{
+		ModInfo.Dependencies.Add(Descriptor.Name);
+	}
+	
 	if (Plugin->GetType() == EPluginType::Mod)
 	{
 		ModInfo.CustomRelativePath = TEXT("Mods/") + ModInfo.ModPluginName + TEXT("/");

@@ -28,7 +28,8 @@ public class ModManagerEditor : ModuleRules
                 // TODO : Main frame is need in 4.27
                 "MainFrame",
                 "DesktopPlatform",
-                "JsonUtilities"
+                "JsonUtilities", 
+                "GameFeatures"
             }
         );
     }

@@ -101,6 +101,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Mod Manager")
 	static void MountModPaks(FModInfo ModInfo);
 
+	static void MountModDependencies(FModInfo ModInfo);
+	
 	static bool TryUnmountAndRemovePlugin(const FString& PluginName, const FString& PluginDescriptorPath);
 	
 	UFUNCTION(BlueprintCallable, Category = "Mod Manager")

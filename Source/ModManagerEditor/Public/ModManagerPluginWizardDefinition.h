@@ -2,6 +2,7 @@
 
 #pragma once
 #include "IPluginWizardDefinition.h"
+#include "Interfaces/IPluginManager.h"
 
 class MODMANAGEREDITOR_API FModManagerPluginWizardDefinition : public IPluginWizardDefinition
 {
@@ -46,6 +47,8 @@ public:
 #endif
 	
 private:
+	static void CreateGameFeatureDataAsset(const TSharedPtr<IPlugin>& Plugin);
+	
 	/** The available templates for the mod. They should function as mixins to the backing template */
 	TArray<TSharedRef<FPluginTemplateDescription>> TemplateDefinitions;
 

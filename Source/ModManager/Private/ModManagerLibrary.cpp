@@ -199,6 +199,9 @@ void UModManagerLibrary::MountModPaks(FModInfo ModInfo)
 		return;
 	}
 	
+	// Mount mod dependencies first.
+	MountModDependencies(ModInfo);
+	
 	for (const FString& PakFilePath : ModInfo.ModPakFiles)
 	{
 		const int32 PakOrder = 999; // High order to override base pak.
@@ -253,6 +256,37 @@ void UModManagerLibrary::MountModPaks(FModInfo ModInfo)
 		else
 		{
 			UE_LOG(LogModManager, Warning, TEXT("Failed to mount mod pak: %s"), *PakFilePath);
+		}
+	}
+}
+
+void UModManagerLibrary::MountModDependencies(FModInfo ModInfo)
+{
+	auto& PluginManager = IPluginManager::Get();
+	const auto EnabledPlugins = PluginManager.GetEnabledPlugins();
+	
+	const auto ModsPath = GetModsSearchPath();
+	const TArray<FModInfo> ModInfos = SearchMods(ModsPath);
+	
+	for (const auto Dependency : ModInfo.Dependencies)
+	{
+		const auto FoundPlugin = EnabledPlugins.FindByPredicate([Dependency](const TSharedRef<IPlugin> Plugin)
+		{
+			return Plugin->GetName() == Dependency;
+		});
+
+		// Should try to find mod and load
+		if (!FoundPlugin)
+		{
+			const auto FoundMod = ModInfos.FindByPredicate([Dependency](const FModInfo& ModInfo)
+			{
+				return ModInfo.ModPluginName == Dependency;
+			});
+
+			if (FoundMod)
+			{
+				MountModPaks(*FoundMod);
+			}
 		}
 	}
 }
