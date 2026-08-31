@@ -18,3 +18,13 @@ FString UModManagerSettings::GetModsSearchPath() const
 	
 	return FPaths::ProjectModsDir();
 }
+
+FString UModManagerSettings::GetModInfoFileName() const
+{
+	if (ModInfoFileName.IsEmpty())
+	{
+		return "modinfo";
+	}
+	
+	return ModInfoFileName;
+}

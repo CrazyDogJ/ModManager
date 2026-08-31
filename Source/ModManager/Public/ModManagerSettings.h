@@ -28,4 +28,11 @@ public:
 	 * @return 
 	 */
 	FString GetModsSearchPath() const;
+	
+	/** Mod info file name. */
+	UPROPERTY(EditDefaultsOnly, config)
+	FString ModInfoFileName = TEXT("modinfo");
+	
+	/** Get pure file name. */
+	FString GetModInfoFileName() const;
 };

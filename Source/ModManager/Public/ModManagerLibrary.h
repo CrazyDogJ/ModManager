@@ -26,6 +26,9 @@ struct MODMANAGER_API FModInfo
 	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Mod Info")
 	FString Description;
  
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Mod Info")
+	FString URL;
+	
 	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Mod Info")
 	TArray<FString> CompatibleGameVersions;
  
@@ -70,11 +73,23 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Mod Manager")
 	static FString GetModsSearchPath();
 
+	/** 
+	 * Get mod info file name.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Mod Manager")
+	static FString GetModInfoFileName();
+	
+	/** 
+	 * Search mod info files in path.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Mod Manager")
+	static TArray<FString> SearchModInfoFiles(FString SearchPath);
+	
 	/**
 	 * Load mod info from json file.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Mod Manager")
-	static bool LoadModInfoFromJson(FString JsonFilePath, FModInfo& OutModInfo);
+	static bool LoadModInfoFromJson(FString JsonFilePath, FModInfo& OutModInfo, bool bUpdateTransientData = true);
 	
 	/**
 	 * Search mods by given search path.
@@ -101,6 +116,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Mod Manager")
 	static void MountModPaks(FModInfo ModInfo);
 
+	static void MountModPakMain(const FString& PakFilePath, const int& PakOrder, const bool& bLoadIndex, 
+		const FString& CustomMountPoint, const FString& CustomRelativePath, const FString& PluginName);
+	
 	static void MountModDependencies(FModInfo ModInfo);
 	
 	static bool TryUnmountAndRemovePlugin(const FString& PluginName, const FString& PluginDescriptorPath);
@@ -109,10 +127,6 @@ public:
 	static void UnmountModPaks(FModInfo ModInfo);
 
 	static void UnmountModPaksMain(FModInfo ModInfo);
-	
-	/** Call when game instance init. */
-	UFUNCTION(BlueprintCallable, Category = "Mod Manager")
-	static void InitModManager();
 
 	UFUNCTION(BlueprintCallable, Category = "Mod Manager")
 	static FString GetPakFileName(FString ModPakFilePath);

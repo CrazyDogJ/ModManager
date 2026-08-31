@@ -265,7 +265,9 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 	    	// Save to json file.
 	    	FString OutputJsonString;
 	    	FJsonObjectConverter::UStructToJsonObjectString<FModInfo>(InModInfo, OutputJsonString);
-	    	const FString ModJsonFile = Path + "/" + "modinfo.json";
+	    	
+	    	const auto ModInfoFileName = UModManagerLibrary::GetModInfoFileName();
+	    	const FString ModJsonFile = Path + "/" + ModInfoFileName;
 	    	FFileHelper::SaveStringToFile(OutputJsonString, *ModJsonFile);
 	    	
 	    	// Delete temp folders.

@@ -28,7 +28,26 @@ FString UModManagerLibrary::GetModsSearchPath()
 	return FPaths::ProjectModsDir();
 }
 
-bool UModManagerLibrary::LoadModInfoFromJson(FString JsonFilePath, FModInfo& OutModInfo)
+FString UModManagerLibrary::GetModInfoFileName()
+{
+	if (const auto ModManagerSettings = GetMutableDefault<UModManagerSettings>())
+	{
+		return ModManagerSettings->GetModInfoFileName() + ".json";
+	}
+
+	return "modinfo.json";
+}
+
+TArray<FString> UModManagerLibrary::SearchModInfoFiles(FString SearchPath)
+{
+	TArray<FString> Files;
+	const auto ModInfoFileName = GetModInfoFileName();
+	IFileManager::Get().FindFilesRecursive(Files, *SearchPath, *ModInfoFileName,true, false, false);
+	
+	return Files;
+}
+
+bool UModManagerLibrary::LoadModInfoFromJson(FString JsonFilePath, FModInfo& OutModInfo, bool bUpdateTransientData)
 {
 	FString JsonString;
 	if (!FFileHelper::LoadFileToString(JsonString, *JsonFilePath))
@@ -51,6 +70,13 @@ bool UModManagerLibrary::LoadModInfoFromJson(FString JsonFilePath, FModInfo& Out
 		UE_LOG(LogModManager, Warning, TEXT("Failed to convert JSON to FModInfo: %s"), *JsonFilePath);
 		return false;
 	}
+
+	if (bUpdateTransientData)
+	{
+		OutModInfo.ModInfoPath = JsonFilePath;
+		const auto Paks = GetAllPaksInPath(*FPaths::GetPath(JsonFilePath), true);
+		OutModInfo.ModPakFiles = Paks;
+	}
  
 	return true;
 }
@@ -59,18 +85,13 @@ TArray<FModInfo> UModManagerLibrary::SearchMods(FString SearchPath)
 {
 	TArray<FModInfo> Result;
 	
-	TArray<FString> Files;
-	IFileManager::Get().FindFilesRecursive(Files, *SearchPath, TEXT("modinfo.json"),true, false, false);
+	const auto Files = SearchModInfoFiles(SearchPath);
 
 	for (const auto FileName : Files)
 	{
 		FModInfo ModInfo;
 		if (LoadModInfoFromJson(FileName, ModInfo))
 		{
-			ModInfo.ModInfoPath = FileName;
-			const auto Paks = GetAllPaksInPath(*FPaths::GetPath(FileName), true);
-			ModInfo.ModPakFiles = Paks;
-			
 			Result.Add(ModInfo);
 		}
 	}
@@ -209,54 +230,76 @@ void UModManagerLibrary::MountModPaks(FModInfo ModInfo)
 
 		const FString CustomMountPoint = TEXT("/") + ModInfo.ModPluginName + TEXT("/");
 		const FString CustomRelativePath = ModInfo.CustomRelativePath;
-		if (PakPlatformFile->Mount(*PakFilePath, PakOrder, nullptr, bLoadIndex))
-		{
-			// Set up mount point for plugin assets.
-			if (!CustomMountPoint.IsEmpty() && CustomMountPoint != "/Game/" && CustomMountPoint != "/Engine/")
-			{
-				FString ProjectDir = FString::Printf(TEXT("../../../%s/"), FApp::GetProjectName());
-				FString PhysicalMountPath = ProjectDir + CustomRelativePath;
-				FString PhysicalMountPathContent = PhysicalMountPath + TEXT("Content/");
-				FString PhysicalMountPathPluginDesc = PhysicalMountPath + ModInfo.ModPluginName + TEXT(".uplugin");
-				
-				// If we can load asset registry, that means this pak is a plugin type mod pak. Else that is a replacement mod pak
-				// Should be loaded first no matter what.
-				if (LoadAssetRegistry(PhysicalMountPath + TEXT("AssetRegistry.bin")))
-				{
-					UE_LOG(LogModManager, Log, TEXT("Asset registry %s is loaded. "), *(PhysicalMountPath + TEXT("AssetRegistry.bin")));
-					
-					// Load shader library.
-					if (LoadShaderLibrary(GetModName(CustomMountPoint), PhysicalMountPathContent))
-					{
-						UE_LOG(LogModManager, Log, TEXT("Shader library load success for mod pak : %s"), *PakFilePath);
-					}
-					else
-					{
-						UE_LOG(LogModManager, Warning, TEXT("Shader library load failed for mod pak : %s"), *PakFilePath);
-					}
-				}
-				
-				// Load plugin
-				if (TryAddAndMountPlugin(ModInfo.ModPluginName, PhysicalMountPathPluginDesc))
-				{
-					// Automatically mount point.
-					UE_LOG(LogModManager, Log, TEXT("Mod plugin : %s is mounted successfully"), *ModInfo.ModPluginName);
+		
+		// Default is windows.
+		FString CurrentPlatform = "Windows";
+#if PLATFORM_WINDOWS
+		CurrentPlatform = "Windows";
+#elif PLATFORM_LINUX
+		CurrentPlatform = "Linux";
+#elif PLATFORM_MAC
+		CurrentPlatform = "Mac";
+#endif
 
-					// Try activate game feature;
-					TryActivateGameFeaturePlugin(PhysicalMountPathPluginDesc);
+		if (PakFilePath.Contains(*("-" + CurrentPlatform)))
+		{
+			MountModPakMain(PakFilePath, PakOrder, bLoadIndex, CustomMountPoint, CustomRelativePath, ModInfo.ModPluginName);
+		}
+	}
+}
+
+void UModManagerLibrary::MountModPakMain(const FString& PakFilePath, const int& PakOrder, const bool& bLoadIndex, 
+	const FString& CustomMountPoint, const FString& CustomRelativePath, const FString& PluginName)
+{
+	FPakPlatformFile* PakPlatformFile = (FPakPlatformFile*)FPlatformFileManager::Get().FindPlatformFile(TEXT("PakFile"));
+
+	if (PakPlatformFile->Mount(*PakFilePath, PakOrder, nullptr, bLoadIndex))
+	{
+		// Set up mount point for plugin assets.
+		if (!CustomMountPoint.IsEmpty() && CustomMountPoint != "/Game/" && CustomMountPoint != "/Engine/")
+		{
+			FString ProjectDir = FString::Printf(TEXT("../../../%s/"), FApp::GetProjectName());
+			FString PhysicalMountPath = ProjectDir + CustomRelativePath;
+			FString PhysicalMountPathContent = PhysicalMountPath + TEXT("Content/");
+			FString PhysicalMountPathPluginDesc = PhysicalMountPath + PluginName + TEXT(".uplugin");
+			
+			// If we can load asset registry, that means this pak is a plugin type mod pak. Else that is a replacement mod pak
+			// Should be loaded first no matter what.
+			if (LoadAssetRegistry(PhysicalMountPath + TEXT("AssetRegistry.bin")))
+			{
+				UE_LOG(LogModManager, Log, TEXT("Asset registry %s is loaded. "), *(PhysicalMountPath + TEXT("AssetRegistry.bin")));
+				
+				// Load shader library.
+				if (LoadShaderLibrary(GetModName(CustomMountPoint), PhysicalMountPathContent))
+				{
+					UE_LOG(LogModManager, Log, TEXT("Shader library load success for mod pak : %s"), *PakFilePath);
 				}
 				else
 				{
-					// Manually mount point.
-					FPackageName::RegisterMountPoint(CustomMountPoint, PhysicalMountPathContent);
-					UE_LOG(LogModManager, Log, TEXT("Not a mod plugin, registering mount point: %s -> %s"), *CustomMountPoint, *PhysicalMountPathContent);
+					UE_LOG(LogModManager, Warning, TEXT("Shader library load failed for mod pak : %s"), *PakFilePath);
 				}
 			}
+			
+			// Load plugin
+			if (TryAddAndMountPlugin(PluginName, PhysicalMountPathPluginDesc))
+			{
+				// Automatically mount point.
+				UE_LOG(LogModManager, Log, TEXT("Mod plugin : %s is mounted successfully"), *PluginName);
+
+				// Try activate game feature;
+				TryActivateGameFeaturePlugin(PhysicalMountPathPluginDesc);
+			}
+			else
+			{
+				// Manually mount point.
+				FPackageName::RegisterMountPoint(CustomMountPoint, PhysicalMountPathContent);
+				UE_LOG(LogModManager, Log, TEXT("Not a mod plugin, registering mount point: %s -> %s"), *CustomMountPoint, *PhysicalMountPathContent);
+			}
 		}
-		else
-		{
-			UE_LOG(LogModManager, Warning, TEXT("Failed to mount mod pak: %s"), *PakFilePath);
-		}
+	}
+	else
+	{
+		UE_LOG(LogModManager, Warning, TEXT("Failed to mount mod pak: %s"), *PakFilePath);
 	}
 }
 
@@ -371,20 +414,6 @@ void UModManagerLibrary::UnmountModPaksMain(FModInfo ModInfo)
 		else
 		{
 			UE_LOG(LogModManager, Warning, TEXT("Failed to unmount mod pak: %s"), *PakFilePath);
-		}
-	}
-}
-
-void UModManagerLibrary::InitModManager()
-{
-	const auto ModsPath = GetModsSearchPath();
-	const TArray<FModInfo> ModInfos = SearchMods(ModsPath);
-	
-	for (const auto Itr : ModInfos)
-	{
-		if (Itr.Enabled)
-		{
-			MountModPaks(Itr);
 		}
 	}
 }
