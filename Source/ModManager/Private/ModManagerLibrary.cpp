@@ -4,7 +4,6 @@
 #include "ModManagerLibrary.h"
 
 #include "GameFeaturesSubsystem.h"
-#include "IPlatformFilePak.h"
 #include "JsonObjectConverter.h"
 #include "ModManager.h"
 #include "ModManagerSettings.h"
@@ -17,6 +16,34 @@
 #include "Engine/AssetManager.h"
 #include "Serialization/LargeMemoryReader.h"
 #endif
+
+FPakPlatformFile* UModManagerLibrary::GetPakFileInterface()
+{
+	FPlatformFileManager& PlatformFileManager = FPlatformFileManager::Get();
+	FPakPlatformFile* PakPlatformFile =
+		static_cast<FPakPlatformFile*>(PlatformFileManager.FindPlatformFile(FPakPlatformFile::GetTypeName()));
+	if (!PakPlatformFile)
+	{
+		IPlatformFile& PreviousPlatformFile = PlatformFileManager.GetPlatformFile();
+		PakPlatformFile = static_cast<FPakPlatformFile*>(
+			PlatformFileManager.GetPlatformFile(FPakPlatformFile::GetTypeName()));
+		if (!PakPlatformFile)
+		{
+			UE_LOG(LogModManager, Warning, TEXT("The PakFile module did not provide a platform file instance."))
+			return nullptr;
+		}
+
+		if (!PakPlatformFile->Initialize(&PreviousPlatformFile, TEXT("")))
+		{
+			UE_LOG(LogModManager, Warning, TEXT("Failed to initialize the PakFile platform layer."))
+			return nullptr;
+		}
+
+		PlatformFileManager.SetPlatformFile(*PakPlatformFile);
+	}
+	
+	return PakPlatformFile;
+}
 
 FString UModManagerLibrary::GetModsSearchPath()
 {
@@ -213,7 +240,7 @@ void UModManagerLibrary::TryActivateGameFeaturePlugin(const FString& PluginDescr
 
 void UModManagerLibrary::MountModPaks(FModInfo ModInfo)
 {
-	FPakPlatformFile* PakPlatformFile = (FPakPlatformFile*)FPlatformFileManager::Get().FindPlatformFile(TEXT("PakFile"));
+	FPakPlatformFile* PakPlatformFile = GetPakFileInterface();;
 	if (!PakPlatformFile)
 	{
 		UE_LOG(LogModManager, Error, TEXT("PakPlatformFile not found!"));
@@ -251,7 +278,12 @@ void UModManagerLibrary::MountModPaks(FModInfo ModInfo)
 void UModManagerLibrary::MountModPakMain(const FString& PakFilePath, const int& PakOrder, const bool& bLoadIndex, 
 	const FString& CustomMountPoint, const FString& CustomRelativePath, const FString& PluginName)
 {
-	FPakPlatformFile* PakPlatformFile = (FPakPlatformFile*)FPlatformFileManager::Get().FindPlatformFile(TEXT("PakFile"));
+	FPakPlatformFile* PakPlatformFile = GetPakFileInterface();
+	if (!PakPlatformFile)
+	{
+		UE_LOG(LogModManager, Error, TEXT("PakPlatformFile not found!"));
+		return;
+	}
 
 	if (PakPlatformFile->Mount(*PakFilePath, PakOrder, nullptr, bLoadIndex))
 	{

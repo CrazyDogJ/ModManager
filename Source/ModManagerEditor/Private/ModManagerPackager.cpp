@@ -219,8 +219,10 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 		" -noP4"
 		// UAT should be compiled already
 		" -nocompile -nocompileeditor"
+		// Avoid encrypt
+		" -noencrypt -encryptini=false -nongryption"
 		// Avoid cook all
-		" -build -cook -stage -package -pak -archive -compressed -distribution"
+		" -cook -stage -package -pak -archive -compressed -distribution"
 		" -clientconfig=Development -serverconfig=Development"),
 	                                      *FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath()),
 	                                      *PluginName,
@@ -233,6 +235,10 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 
 	// Disable other plugins before create uat task.
 	DisableOtherModPlugins(Plugin);
+	
+	// Disable encryto when packaging mods
+	DisableEncryption();
+	
 	FString FriendlyName = Plugin->GetDescriptor().FriendlyName;
 	IUATHelperModule::Get().CreateUatTask(CommandLine, PlatformName, PackagingText,
 	    PackagingText, FModManagerEditorStyle::Get().GetBrush(TEXT("ModManagerEditor.PackageModAction")), 
@@ -248,7 +254,10 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 	        const TArray<FString> FinalFiles = UModManagerLibrary::GetAllPaksInPath(StagePath, true);
 	    	
 	    	const FString Path = OutputDirectory + "/" + PluginName;
-	    	PlatformFile.CreateDirectory(*Path);
+	        if (!PlatformFile.DirectoryExists(*Path))
+	        {
+	        	PlatformFile.CreateDirectory(*Path);
+	        }
 	    	
 	        for (const auto ModPackageFile : FinalFiles)
 	        {
@@ -274,6 +283,7 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 	        PlatformFile.DeleteDirectoryRecursively(*StagePath);
 	    	// Enable other mod plugins after we finish uat task.
 	    	EnableLastModPlugins();
+	    	RestoreEncryptionSettings();
 	    });
 }
 
@@ -442,6 +452,24 @@ void FModManagerPackager::DisableOtherModPlugins(TSharedRef<IPlugin> ExcludePlug
 	}
 }
 
+void FModManagerPackager::DisableEncryption()
+{
+	const auto DefaultCryptoKeysSettings = GetMutableDefault<UCryptoKeysSettings>();
+	bEncryptPakIniFiles = DefaultCryptoKeysSettings->bEncryptPakIniFiles;
+	bEncryptAllAssetFiles = DefaultCryptoKeysSettings->bEncryptAllAssetFiles;
+	bEncryptPakIndex = DefaultCryptoKeysSettings->bEncryptPakIndex;
+	bEncryptUAssetFiles = DefaultCryptoKeysSettings->bEncryptUAssetFiles;
+	EncryptionString = DefaultCryptoKeysSettings->EncryptionKey;
+	SecondaryEncryptionKeys = DefaultCryptoKeysSettings->SecondaryEncryptionKeys;
+	DefaultCryptoKeysSettings->bEncryptAllAssetFiles = false;
+	DefaultCryptoKeysSettings->bEncryptPakIndex = false;
+	DefaultCryptoKeysSettings->bEncryptUAssetFiles = false;
+	DefaultCryptoKeysSettings->bEncryptPakIniFiles = false;
+	DefaultCryptoKeysSettings->EncryptionKey = FString();
+	DefaultCryptoKeysSettings->SecondaryEncryptionKeys = {};
+	DefaultCryptoKeysSettings->SaveConfig(CPF_Config, *GetConfigFilename(DefaultCryptoKeysSettings));
+}
+
 void FModManagerPackager::EnableLastModPlugins()
 {
 	for (auto Itr : DisabledModPlugins)
@@ -456,6 +484,18 @@ void FModManagerPackager::EnableLastModPlugins()
 	}
 
 	DisabledModPlugins.Empty();
+}
+
+void FModManagerPackager::RestoreEncryptionSettings() const
+{
+	const auto DefaultCryptoKeysSettings = GetMutableDefault<UCryptoKeysSettings>();
+	DefaultCryptoKeysSettings->bEncryptAllAssetFiles = bEncryptAllAssetFiles;
+	DefaultCryptoKeysSettings->bEncryptPakIndex = bEncryptPakIndex;
+	DefaultCryptoKeysSettings->bEncryptUAssetFiles = bEncryptUAssetFiles;
+	DefaultCryptoKeysSettings->bEncryptPakIniFiles = bEncryptPakIniFiles;
+	DefaultCryptoKeysSettings->EncryptionKey = EncryptionString;
+	DefaultCryptoKeysSettings->SecondaryEncryptionKeys = SecondaryEncryptionKeys;
+	DefaultCryptoKeysSettings->SaveConfig(CPF_Config, *GetConfigFilename(DefaultCryptoKeysSettings));
 }
 
 FModInfo FModManagerPackager::MakeModInfoFromPlugin(TSharedRef<IPlugin> Plugin)

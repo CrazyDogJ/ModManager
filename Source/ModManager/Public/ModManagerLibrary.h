@@ -6,6 +6,7 @@
 #if ENGINE_MAJOR_VERSION == 4
 #include "AssetRegistry/AssetRegistryState.h"
 #endif
+#include "IPlatformFilePak.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "ModManagerLibrary.generated.h"
 
@@ -66,6 +67,8 @@ class MODMANAGER_API UModManagerLibrary : public UBlueprintFunctionLibrary
 	GENERATED_BODY()
 	
 public:
+	
+	static FPakPlatformFile* GetPakFileInterface();
 	
 	/**
 	 * Get mods search path by plugin settings.

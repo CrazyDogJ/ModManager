@@ -26,7 +26,8 @@ public class ModManager : ModuleRules
 			new string[]
 			{
 				"Core", 
-				"AssetRegistry",
+				"AssetRegistry", 
+				"PakFile",
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);

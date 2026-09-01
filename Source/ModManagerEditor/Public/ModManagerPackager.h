@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "CryptoKeysSettings.h"
 #include "ModManagerLibrary.h"
 #include "ModPackagerSettingsProxy.h"
 
@@ -69,10 +70,14 @@ private:
 	 */
 	void DisableOtherModPlugins(TSharedRef<IPlugin> ExcludePlugin);
 
+	void DisableEncryption();
+	
 	/**
 	 * Enable other mod plugins that disabled at last uat task.
 	 */
 	void EnableLastModPlugins();
+	
+	void RestoreEncryptionSettings() const;
 	
 	/** Make mod info struct from plugin. */
 	static FModInfo MakeModInfoFromPlugin(TSharedRef<IPlugin> Plugin);
@@ -80,4 +85,10 @@ private:
 private:
 	TArray<TSharedPtr<class FUICommandInfo>> ModCommands;
 	TArray<FString> DisabledModPlugins;
+	FString EncryptionString;
+	TArray<FCryptoEncryptionKey> SecondaryEncryptionKeys;
+	bool bEncryptPakIniFiles = false;
+	bool bEncryptPakIndex = false;
+	bool bEncryptUAssetFiles = false;
+	bool bEncryptAllAssetFiles = false;
 };

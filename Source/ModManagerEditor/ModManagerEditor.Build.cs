@@ -13,7 +13,8 @@ public class ModManagerEditor : ModuleRules
                 "PluginBrowser",
                 "UnrealEd",
                 "Projects", 
-                "ModManager"
+                "ModManager", 
+                "CryptoKeys"
             }
         );
 
@@ -29,7 +30,8 @@ public class ModManagerEditor : ModuleRules
                 "MainFrame",
                 "DesktopPlatform",
                 "JsonUtilities", 
-                "GameFeatures"
+                "GameFeatures", 
+                "CryptoKeys"
             }
         );
     }
