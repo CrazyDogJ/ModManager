@@ -49,7 +49,7 @@ public:
 	bool FindMountedModByModInfoPath(FModInfo& OutInfo, FString ModInfoPath) const;
 	
 	UFUNCTION(BlueprintPure, Category = "Mod Manager|Mod Manager Subsystem")
-	bool FindMountedModByModPluginName(FModInfo& OutInfo, FString ModPluginName) const;
+	bool FindMountedModByModPluginName(FModInfo& OutInfo, FString& OutModInfoPath, FString ModPluginName) const;
 	
 	UFUNCTION(BlueprintCallable, Category = "Mod Manager|Mod Manager Subsystem")
 	FString TryGetUrlByModInfoPath(FString ModInfoPath) const;

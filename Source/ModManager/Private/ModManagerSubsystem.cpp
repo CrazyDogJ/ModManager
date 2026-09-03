@@ -71,17 +71,19 @@ bool UModManagerSubsystem::FindMountedModByModInfoPath(FModInfo& OutInfo, const 
 	return false;
 }
 
-bool UModManagerSubsystem::FindMountedModByModPluginName(FModInfo& OutInfo, const FString ModPluginName) const
+bool UModManagerSubsystem::FindMountedModByModPluginName(FModInfo& OutInfo, FString& OutModInfoPath, const FString ModPluginName) const
 {
 	for (const auto ModInfoPair : MountedMods)
 	{
 		if (ModInfoPair.Value.ModPluginName == ModPluginName)
 		{
 			OutInfo = ModInfoPair.Value;
+			OutModInfoPath = ModInfoPair.Key;
 			return true;
 		}
 	}
 	
+	OutModInfoPath = FString();
 	OutInfo = FModInfo();
 	return false;
 }
@@ -100,7 +102,8 @@ FString UModManagerSubsystem::TryGetUrlByModInfoPath(const FString ModInfoPath) 
 FString UModManagerSubsystem::TryGetUrlByModPluginName(const FString ModPluginName) const
 {
 	FModInfo OutModInfo;
-	if (FindMountedModByModPluginName(OutModInfo, ModPluginName))
+	FString OutPath;
+	if (FindMountedModByModPluginName(OutModInfo, OutPath, ModPluginName))
 	{
 		return OutModInfo.URL;
 	}
