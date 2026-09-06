@@ -33,6 +33,10 @@
 		{
 			"Name": "GameFeatures",
 			"Enabled": true
+		},
+		{
+			"Name": "CryptoKeys",
+			"Enabled": true
 		}
 	]
 }

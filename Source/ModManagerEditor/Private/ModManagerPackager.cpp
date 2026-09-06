@@ -182,8 +182,15 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 		UE_LOG(ModManagerPackager, Warning, TEXT("There are more than one modules in this project, you might want to doublecheck if we're using the right one!"));
 	}
 
-	GameModuleName = Project->Modules[0].Name.ToString();
-	UE_LOG(ModManagerPackager, Display, TEXT("***** Determined game module name mods are supposingly packaged for: %s *****"), *GameModuleName);
+	if (Project->Modules.IsValidIndex(0))
+	{
+		GameModuleName = Project->Modules[0].Name.ToString();
+		UE_LOG(ModManagerPackager, Display, TEXT("***** Determined game module name mods are supposingly packaged for: %s *****"), *GameModuleName);
+	}
+	else
+	{
+		UE_LOG(ModManagerPackager, Display, TEXT("***** Project has no module. *****"));
+	}
 
 	// set up some path names where things are going
 	FString StagePath = FString::Printf(TEXT("%s/Temp"), *OutputDirectory);

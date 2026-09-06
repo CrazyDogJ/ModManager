@@ -330,7 +330,11 @@ void FModManagerPluginWizardDefinition::CreateGameFeatureDataAsset(const TShared
 	// If the template includes an existing game feature data, do not create a new one.
 	TArray<FAssetData> ObjectList;
 	FARFilter AssetFilter;
+#if ENGINE_MAJOR_VERSION == 4
 	AssetFilter.ClassNames.Add(UGameFeatureData::StaticClass()->GetFName());
+#else
+	AssetFilter.ClassPaths.Add(UGameFeatureData::StaticClass()->GetClassPathName());
+#endif
 	AssetFilter.PackagePaths.Add(FName(Plugin->GetMountedAssetPath()));
 	AssetFilter.bRecursiveClasses = true;
 	AssetFilter.bRecursivePaths = true;
