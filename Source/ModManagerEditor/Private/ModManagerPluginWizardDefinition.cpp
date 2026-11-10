@@ -109,7 +109,8 @@ void FModManagerPluginWizardDefinition::OnTemplateSelectionChanged(
 	TSharedPtr<FPluginTemplateDescription> InSelectedItem, ESelectInfo::Type SelectInfo)
 {
 	SelectedTemplates.Empty();
-	SelectedTemplates.Add(InSelectedItem);
+	// 修复：向导清除选择时会传入空共享指针。
+	if (InSelectedItem.IsValid()) SelectedTemplates.Add(InSelectedItem);
 }
 #else
 void FModManagerPluginWizardDefinition::OnTemplateSelectionChanged(

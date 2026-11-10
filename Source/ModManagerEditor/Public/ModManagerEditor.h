@@ -27,6 +27,9 @@ public:
     void AddModPackagerMenuExtension(FMenuBuilder& Builder);
 
 private:
+    // 修复：保存扩展句柄，模块卸载时从关卡编辑器解除回调。
+    TArray<TSharedPtr<class FExtender>> MenuExtenders;
+    TArray<TSharedPtr<class FExtender>> ToolbarExtenders;
     TSharedPtr<class FModManagerCreator> ModCreator;
     TSharedPtr<class FModManagerPackager> ModPackager;
     TSharedPtr<class FUICommandList> PluginCommands;

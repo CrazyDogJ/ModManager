@@ -217,20 +217,33 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 	// UAT command for packaging our mod
 	FString CommandLine = FString::Printf(TEXT(
 		"BuildCookRun"
+		// Project Name
 		" -project=\"%s\""
+		// Mod Name
 		" -dlcname=\"%s\""
+		// Version based (AssetRegistry.bin)
 		" -basedonreleaseversion=\"%s\""
+		// Archive path
+		" -archive"
 		" -archivedirectory=\"%s\""
-		" -targetplatform=\"%s\""
-		" -DLCIncludeEngineContent -DLCPakPluginFile -nodebuginfo"
+		// Target platform
+		" -platform=\"%s\""
+		// Include engine content if something missing.(Would be trigger some issues when multiple mods reference to engine assets!!!)
+		" -DLCIncludeEngineContent"
+		// Include plugin description file to read in release game.
+		" -DLCPakPluginFile"
+		// No debug info to stage and Perforce
+		" -nodebuginfo"
 		" -noP4"
 		// UAT should be compiled already
 		" -nocompile -nocompileeditor"
-		// Avoid encrypt
-		" -noencrypt -encryptini=false -nongryption"
-		// Avoid cook all
-		" -cook -stage -package -pak -archive -compressed -distribution"
-		" -clientconfig=Development -serverconfig=Development"),
+		// No cook all, just cook delta. pak will compressed and for distribution.
+		" -cook -stage -package -pak -compressed -distribution"
+		// Avoid stuck and log code error, used for editor tools.
+		" -unattended -utf8output"
+		// Should be shipping for mods. If you need server, you should modify here( Since we are using shipping engine, so we have no server needed. )
+		// " -server"
+		" -clientconfig=Shipping -serverconfig=Shipping"),
 	                                      *FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath()),
 	                                      *PluginName,
 	                                      *ReleaseVersion,
@@ -253,7 +266,8 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 	    nullptr,
 #else
 #endif
-	    [OutputDirectory, StagePath, this, PluginName, InModInfo]
+	    // 修复：后台打包结束时仍需恢复配置，回调持有打包器直至还原完成。
+	    [OutputDirectory, StagePath, Packager = AsShared(), PluginName, InModInfo]
 		(FString TaskResult, double TimeSec)
 	    {
 	        // find all paks and move to needed folder.
@@ -289,8 +303,8 @@ void FModManagerPackager::PackagePlugin(TSharedRef<class IPlugin> Plugin, const 
 	    	// Delete temp folders.
 	        PlatformFile.DeleteDirectoryRecursively(*StagePath);
 	    	// Enable other mod plugins after we finish uat task.
-	    	EnableLastModPlugins();
-	    	RestoreEncryptionSettings();
+	    	Packager->EnableLastModPlugins();
+	    	Packager->RestoreEncryptionSettings();
 	    });
 }
 
@@ -334,7 +348,8 @@ void FModManagerPackager::GeneratePackagerMenuContent(class FMenuBuilder& MenuBu
 	{
 		GameModActionsList->MapAction(
 			ModCommands[Index],
-			FExecuteAction::CreateRaw(this, &FModManagerPackager::OpenPluginPackager, AvailableGameMods[Index]),
+			// 修复：菜单可能比打包器活得更久，使用弱共享绑定。
+			FExecuteAction::CreateSP(this, &FModManagerPackager::OpenPluginPackager, AvailableGameMods[Index]),
 			FCanExecuteAction()
 		);
 	}
@@ -361,7 +376,8 @@ TSharedRef<SWidget> FModManagerPackager::GeneratePackagerComboButtonContent()
 	{
 		GameModActionsList->MapAction(
 			ModCommands[Index],
-			FExecuteAction::CreateRaw(this, &FModManagerPackager::OpenPluginPackager, AvailableGameMods[Index]),
+			// 修复：菜单可能比打包器活得更久，使用弱共享绑定。
+			FExecuteAction::CreateSP(this, &FModManagerPackager::OpenPluginPackager, AvailableGameMods[Index]),
 			FCanExecuteAction()
 		);
 	}

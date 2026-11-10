@@ -43,6 +43,7 @@ void FModManagerEditorModule::StartupModule()
 			                               FMenuExtensionDelegate::CreateRaw(
 				                               this, &FModManagerEditorModule::AddModCreatorMenuExtension));
 
+			MenuExtenders.Add(MenuExtender);
 			LevelEditorModule.GetMenuExtensibilityManager()->AddExtender(MenuExtender);
 		}
 
@@ -53,6 +54,7 @@ void FModManagerEditorModule::StartupModule()
 			                                     FToolBarExtensionDelegate::CreateRaw(
 				                                     this, &FModManagerEditorModule::AddModCreatorToolbarExtension));
 
+			ToolbarExtenders.Add(ToolbarExtender);
 			LevelEditorModule.GetToolBarExtensibilityManager()->AddExtender(ToolbarExtender);
 		}
 
@@ -63,6 +65,7 @@ void FModManagerEditorModule::StartupModule()
 			                               FMenuExtensionDelegate::CreateRaw(
 				                               this, &FModManagerEditorModule::AddModPackagerMenuExtension));
 
+			MenuExtenders.Add(MenuExtender);
 			LevelEditorModule.GetMenuExtensibilityManager()->AddExtender(MenuExtender);
 		}
 
@@ -73,6 +76,7 @@ void FModManagerEditorModule::StartupModule()
 			                                     FToolBarExtensionDelegate::CreateRaw(
 				                                     this, &FModManagerEditorModule::AddModPackagerToolbarExtension));
 
+			ToolbarExtenders.Add(ToolbarExtender);
 			LevelEditorModule.GetToolBarExtensibilityManager()->AddExtender(ToolbarExtender);
 		}
 	}
@@ -82,6 +86,24 @@ void FModManagerEditorModule::ShutdownModule()
 {
 	// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
 	// we call this function before unloading the module.
+	// 修复：先撤销含模块指针的菜单命令，再释放其对象。
+	if (auto* LevelEditor = FModuleManager::GetModulePtr<FLevelEditorModule>("LevelEditor"))
+	{
+		if (auto Manager = LevelEditor->GetMenuExtensibilityManager())
+		{
+			for (const auto& Extender : MenuExtenders) Manager->RemoveExtender(Extender);
+		}
+		if (auto Manager = LevelEditor->GetToolBarExtensibilityManager())
+		{
+			for (const auto& Extender : ToolbarExtenders) Manager->RemoveExtender(Extender);
+		}
+	}
+	MenuExtenders.Reset();
+	ToolbarExtenders.Reset();
+	PluginCommands->UnmapAction(FModManagerEditorCommands::Get().CreateModAction);
+	PluginCommands.Reset();
+	ModPackager.Reset();
+	ModCreator.Reset();
 	FModManagerEditorStyle::Shutdown();
 
 	FModManagerEditorCommands::Unregister();
@@ -123,7 +145,7 @@ void FModManagerEditorModule::AddModPackagerMenuExtension(FMenuBuilder& Builder)
 
 	Builder.AddSubMenu(LOCTEXT("PackageModMenu_Label", "Package Mod"),
 					   LOCTEXT("PackageModMenu_Tooltip", "Pack your MOD for sharing"),
-					   FNewMenuDelegate::CreateRaw(Packager, &FModManagerPackager::GeneratePackagerMenuContent),
+					   FNewMenuDelegate::CreateSP(Packager, &FModManagerPackager::GeneratePackagerMenuContent),
 					   false,
 					   FSlateIcon(FModManagerEditorStyle::GetStyleSetName(), "ModManagerEditor.PackageModAction")
 	);

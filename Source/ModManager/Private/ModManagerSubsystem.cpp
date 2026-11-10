@@ -49,10 +49,10 @@ bool UModManagerSubsystem::UnmountModPaks(const FString ModInfoPath)
 	if (const auto FoundModInfo = MountedMods.Find(ModInfoPath))
 	{
 		const auto ModInfoPure = *FoundModInfo;
+		// 修复：回调可再次请求卸载，先移出注册表以避免递归。
+		MountedMods.Remove(ModInfoPath);
 		UModManagerLibrary::UnmountModPaks(ModInfoPure);
 		OnModUnmounted.Broadcast(ModInfoPath, ModInfoPure);
-		
-		MountedMods.Remove(ModInfoPath);
 		return true;
 	}
 	

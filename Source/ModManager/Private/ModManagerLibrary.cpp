@@ -2,6 +2,7 @@
 
 
 #include "ModManagerLibrary.h"
+#include "Misc/ScopeExit.h"
 
 #include "GameFeaturesSubsystem.h"
 #include "JsonObjectConverter.h"
@@ -247,6 +248,15 @@ void UModManagerLibrary::MountModPaks(FModInfo ModInfo)
 		return;
 	}
 	
+	// 修复：模组描述可能自引用或形成依赖环，阻止递归挂载导致栈溢出。
+	static thread_local TSet<FString> Mounting;
+	if (Mounting.Contains(ModInfo.ModPluginName))
+	{
+		UE_LOG(LogModManager, Warning, TEXT("Cyclic mod dependency: %s"), *ModInfo.ModPluginName);
+		return;
+	}
+	Mounting.Add(ModInfo.ModPluginName);
+	ON_SCOPE_EXIT { Mounting.Remove(ModInfo.ModPluginName); };
 	// Mount mod dependencies first.
 	MountModDependencies(ModInfo);
 	
